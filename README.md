@@ -11,8 +11,10 @@ Requires Node 24, an installed Codex CLI and network access to the confirmed gat
 Install into a chosen project with:
 
 ```bash
-npx skills add random-react-dev/rugcheck --skill rugcheck --agent codex --copy --yes
+npx skills add random-react-dev/rugcheck
 ```
+
+In a normal terminal, follow the installer prompts: choose your agent (Codex for the qualified path), Project or Global scope, Symlink or Copy, then confirm installation. Our fresh project test used the default agent set including Codex, Project, and Copy. The installer also displays third-party risk assessments and can offer the optional unrelated `find-skills` skill after RugCheck is installed; that extra skill is not required. When invoked inside a detected agent session, the installer may skip prompts automatically.
 
 Resolve SKILL_DIR to the installed folder containing SKILL.md; in the standard project installation it is `.agents/skills/rugcheck`. Use an absolute Codex executable path, for example the result of `command -v codex`.
 
