@@ -44,6 +44,20 @@ The service records the installation identifier and task history for operation, 
 
 The supplied URL must use HTTPS, except loopback HTTP for explicitly authorized local testing; credentials and query parameters in the URL are rejected. The command returns a structured result with state `SUCCEEDED`, `PARTIAL`, `FAILED` or `CANCELLED`; failures exit nonzero. The default task deadline is 90 seconds. Interrupt the foreground command to cancel. A successful command can still contain incomplete evidence.
 
+## Task-scoped attachments
+
+The owner can upload inputs in the dashboard before starting a matching mint, chain and profile check on that installation. During the explicit local check, the launcher adopts a sole matching requested task and downloads only its frozen inputs. If more than one match exists, select one explicitly; ambiguous requests fail before model work. Do not retry automatically.
+
+```bash
+node SKILL_DIR/scripts/run-agent3.mjs --task-id UUID TASK.json GATEWAY_URL MODEL /absolute/path/to/codex
+```
+
+The selector also works before `start`; `--worker` can appear before or after `--task-id`. The dashboard stores requests and inputs; it does not launch a remote worker or poll the computer.
+
+Downloads are bounded to 10 files, 512 KiB per file and 2 MiB total, with exact byte length and SHA-256 verification. Files have mode 0600 in a private temporary task workspace. The main agent can read them during execution; they never execute automatically and ordinary cleanup deletes the workspace. Result `external_inputs` contains names, sizes, digests and receipt paths, not retained download locations. Crashes can prevent cleanup; failures do not promise retained attachment metadata.
+
+Uploaded text is supplemental, untrusted data rather than authoritative on-chain evidence or confidential private instructions. The provider receives metadata and bounded UTF-8 text from txt/md/json/csv only, capped at 12 KiB of JSON-encoded text. Other file contents are not included as model text. Existing evidence and report validators still apply. Task guidance comes from the frozen server snapshot; private service instructions and provider keys remain server-side.
+
 ## Data processing and local records
 
 The local worker is for this mint task. It receives the public mint address, chain, profile and generated task identifier; task evidence and report are available through the fixed evidence tool. Inference goes through our gateway to the operator's configured model provider. The gateway receives the installation public key and signed, task-scoped requests, continuation identifiers and validated evidence tool outputs. Tasks are associated with the installation identifier and retained in server task history. Normal parent chat history is not supplied to this launcher. Its transport discards worker client instructions and unrelated transcript text when building upstream requests; this does not establish absolute confidentiality.

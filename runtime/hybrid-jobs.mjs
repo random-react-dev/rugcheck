@@ -74,9 +74,10 @@ export async function resultAgent3({ root, jobId }) {
     const request = await readJobFile(dir, 'request.json', 8192);
     const input = validateTask({ ...task(request.input), task_id: value.task_id });
     const report = validateResult({ protocol_version: value.protocol_version, task_id: value.task_id, evidence: value.evidence, interpretation: value.interpretation }, input, saved.completed_at_ms);
+    let external_inputs;if(value.external_inputs!==undefined){const x=value.external_inputs;invariant(x&&Object.keys(x).sort().join(',')==='applied,diagnosis,executed,files,retained_after_task,task_id'&&x.task_id===value.task_id&&x.executed===false&&x.retained_after_task===false&&Array.isArray(x.files)&&x.files.length<=10,'JOB_RESULT_INVALID');let total=0;for(const f of x.files){invariant(f&&Object.keys(f).sort().join(',')==='name,path,sha256,size'&&/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,99}$/.test(f.name)&&!f.name.includes('..')&&/^external-inputs\/[a-f0-9-]{36}-[a-zA-Z0-9][a-zA-Z0-9._-]{0,99}$/.test(f.path)&&/^[a-f0-9]{64}$/.test(f.sha256)&&Number.isSafeInteger(f.size)&&f.size>0&&f.size<=524288,'JOB_RESULT_INVALID');total+=f.size;}invariant(total<=2097152&&(x.diagnosis===null||(typeof x.diagnosis==='string'&&Buffer.byteLength(x.diagnosis)<=32000)),'JOB_RESULT_INVALID');if(x.applied!==null)invariant(x.applied&&Object.keys(x.applied).sort().join(',')==='global,installation,source'&&['global','override'].includes(x.applied.source)&&Number.isSafeInteger(x.applied.global)&&x.applied.global>0&&Number.isSafeInteger(x.applied.installation)&&x.applied.installation>0,'JOB_RESULT_INVALID');external_inputs=x;}
     return { ...status, completed_at_ms: saved.completed_at_ms, result: { state: value.state,
       protocol_version: value.protocol_version, task_id: value.task_id, evidence: value.evidence, report,
-      interpretation: value.interpretation, worker: request.worker ?? 'codex', qualification: request.worker === 'claude-code' ? 'LOCAL_CLAUDE_AND_LIVE_GATEWAY_NOT_QUALIFIED' : 'LOCAL_CODEX_AND_LIVE_GATEWAY_NOT_QUALIFIED', isolation: request.worker === 'claude-code' ? 'EVIDENCE_TOOL_ONLY_NOT_OS_SANDBOX' : 'READ_ONLY_REQUESTED_NOT_HOST_SECRECY' } };
+      interpretation: value.interpretation,...(external_inputs?{external_inputs}:{}), worker: request.worker ?? 'codex', qualification: request.worker === 'claude-code' ? 'LOCAL_CLAUDE_AND_LIVE_GATEWAY_NOT_QUALIFIED' : 'LOCAL_CODEX_AND_LIVE_GATEWAY_NOT_QUALIFIED', isolation: request.worker === 'claude-code' ? 'EVIDENCE_TOOL_ONLY_NOT_OS_SANDBOX' : 'READ_ONLY_REQUESTED_NOT_HOST_SECRECY' } };
   }
   invariant(typeof value.error?.code === 'string' && /^[A-Z][A-Z0-9_]{0,79}$/.test(value.error.code), 'JOB_RESULT_INVALID');
   let diagnostics;if(value.diagnostics!==undefined){const d=value.diagnostics;invariant(d&&typeof d==='object'&&!Array.isArray(d)&&Object.keys(d).every(k=>['task_id','http_status','operation','turn'].includes(k))&&typeof d.task_id==='string'&&/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/.test(d.task_id)&&(!Object.hasOwn(d,'http_status')||(Number.isInteger(d.http_status)&&d.http_status>=100&&d.http_status<=599))&&(!Object.hasOwn(d,'operation')||['turn','read-evidence'].includes(d.operation))&&(!Object.hasOwn(d,'turn')||(Number.isInteger(d.turn)&&d.turn>=0&&d.turn<4)),'JOB_RESULT_INVALID');diagnostics={...d};}
@@ -91,7 +92,7 @@ export async function cancelAgent3({ root, jobId }) {
   // Request acknowledgement is not a claim that the worker has stopped.
   return { ...status, cancellation_requested: true };
 }
-export async function startAgent3({ root, input, endpoint, model, codexPath, claudePath, worker = 'codex', installationStateRoot, installationIdentity='auto', timeoutMs = 90000 }) {
+export async function startAgent3({ root, input, endpoint, model, codexPath, claudePath, worker = 'codex', installationStateRoot, installationIdentity='auto', requestedTaskId=null, timeoutMs = 90000 }) {
   task(input); const identityUrl=gatewayURL(endpoint);invariant(['auto','required','off'].includes(installationIdentity),'INSTALLATION_MODE_INVALID');
   const identify=installationIdentity==='required'||(installationIdentity==='auto'&&identityUrl.hostname==='rugcheck.r95426882.workers.dev'&&identityUrl.pathname==='/v1/rugcheck');
   if(identify)installationStateRoot??=path.join(os.homedir(),'.local/state/rugcheck');
@@ -108,7 +109,7 @@ export async function startAgent3({ root, input, endpoint, model, codexPath, cla
   await fs.mkdir(path.join(dir, 'tmp'), { mode: 0o700 });
   const now = Date.now();
   const state = { job_id: id, state: 'STARTING', created_at_ms: now, updated_at_ms: now, timeout_ms: timeoutMs };
-  await writeJobFile(dir, 'request.json', { input, endpoint, model, worker, installationIdentity,...(installationStateRoot?{installationStateRoot}:{}), ...(worker === 'claude-code' ? { claudePath } : { codexPath }), timeoutMs });
+  await writeJobFile(dir, 'request.json', { input, endpoint, model, worker, installationIdentity,requestedTaskId,...(installationStateRoot?{installationStateRoot}:{}), ...(worker === 'claude-code' ? { claudePath } : { codexPath }), timeoutMs });
   await writeJobFile(dir, 'state.json', state);
   const runner = fileURLToPath(new URL('./hybrid-job-runner.mjs', import.meta.url));
   const child = spawn(process.execPath, [runner, root, id], { detached: true, cwd: dir,

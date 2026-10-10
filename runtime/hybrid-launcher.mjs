@@ -1,3 +1,4 @@
+import {prepareTaskInputs,materializeTaskInputs} from './task-inputs-client.mjs';
 import {createLocalInstallation} from './installation-client.mjs';
 import fs from 'node:fs/promises';
 import os from 'node:os';
@@ -66,12 +67,12 @@ async function safeOutput(file) {
   finally { await handle?.close(); }
 }
 /** Async, bounded, one-shot worker. Never changes the user's normal Codex home. */
-export async function runAgent3({ input, reservedTask, gatewayHeaders = {}, endpoint, model, codexPath, claudePath, worker = 'codex', installationStateRoot, installationIdentity='auto', signal, timeoutMs = 90000, onEvent = () => {} }) {
+export async function runAgent3({ input, reservedTask, gatewayHeaders = {}, endpoint, model, codexPath, claudePath, worker = 'codex', installationStateRoot, installationIdentity='auto', requestedTaskId=null, signal, timeoutMs = 90000, onEvent = () => {} }) {
   let home, relay, child, killTimer, timer, childClosed;
   const controller = new AbortController();
   const abort = () => controller.abort(new RugError('CANCELLED'));
   const emit = (code, fields = {}) => { try { onEvent({ event: code, ...fields }); } catch {} };
-  let accepted = 0, result, report, fault, taskId, rejection;
+  let accepted = 0, result, report, fault, taskId, rejection, inputTask, externalInputs;
   try {
     invariant(['linux', 'darwin'].includes(process.platform), 'PLATFORM_UNQUALIFIED');
     invariant(Number.isInteger(timeoutMs) && timeoutMs >= 100 && timeoutMs <= 120000, 'DEADLINE_INVALID');
@@ -80,7 +81,8 @@ export async function runAgent3({ input, reservedTask, gatewayHeaders = {}, endp
     invariant(typeof executable === 'string' && path.isAbsolute(executable), worker === 'claude-code' ? 'ABSOLUTE_CLAUDE_PATH_REQUIRED' : 'ABSOLUTE_CODEX_PATH_REQUIRED');
     try { await fs.access(executable, fs.constants.X_OK); } catch { throw new RugError('WORKER_EXECUTABLE_UNAVAILABLE'); }
     invariant(gatewayHeaders && typeof gatewayHeaders==='object' && !Array.isArray(gatewayHeaders) && Object.keys(gatewayHeaders).every(k=>k==='authorization') && Object.values(gatewayHeaders).every(v=>typeof v==='string'&&v.length>0&&v.length<=4096&&!/[\r\n]/.test(v)),'GATEWAY_AUTH_INVALID');
-    const url = gatewayURL(endpoint), inputTask = reservedTask ? validateTask(structuredClone(reservedTask)) : task(input);
+    const url = gatewayURL(endpoint);inputTask = reservedTask ? validateTask(structuredClone(reservedTask)) : task(input);
+    invariant(requestedTaskId===null||/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/.test(requestedTaskId),'REQUESTED_TASK_ID_INVALID');
     taskId=inputTask.task_id;
     invariant(canonical(inputTask.request)===canonical(input),'RESERVED_TASK_CHANGED');
     configText(model, 'http://127.0.0.1');
@@ -94,6 +96,8 @@ export async function runAgent3({ input, reservedTask, gatewayHeaders = {}, endp
     home = await fs.mkdtemp(path.join(os.tmpdir(), 'rugcheck-agent3-'));
     await fs.chmod(home, 0o700);
     for (const dir of ['codex', 'claude', 'tmp', 'work']) await fs.mkdir(path.join(home, dir), { mode: 0o700 });
+    if(installation){const bundle=await prepareTaskInputs({endpoint:url,installation,task:inputTask,requestedTaskId:requestedTaskId??reservedTask?.task_id??null,preferRequested:!reservedTask,signal:controller.signal});inputTask=bundle.task;taskId=inputTask.task_id;externalInputs=await materializeTaskInputs({endpoint:url,installation,bundle,workspaceRoot:path.join(home,'work'),signal:controller.signal});emit('EXTERNAL_TASK_INPUTS',{task_id:taskId,files:externalInputs.files,diagnosis:externalInputs.diagnosis,applied:externalInputs.applied,workspace:externalInputs.workspace,executed:false});}
+
     const token = crypto.randomBytes(24).toString('hex');
     let turn = 0, previous = null, pending = [], localEvidence = null;
     const sent = new Map(); let relayBusy = false;
@@ -217,7 +221,7 @@ export async function runAgent3({ input, reservedTask, gatewayHeaders = {}, endp
     const drain = chunk => { streamed += chunk.length; if (streamed > 1024 * 1024 && !controller.signal.aborted) controller.abort(new RugError('WORKER_OUTPUT_LIMIT')); };
     child.stdout.on('data', chunk => { drain(chunk); if (worker === 'claude-code' && streamed <= 1024 * 1024) stdout.push(chunk); }); child.stderr.on('data', drain);
     child.stdin.on('error', () => { if (!controller.signal.aborted) controller.abort(new RugError('WORKER_STDIN_FAILED')); });
-    child.stdin.end(JSON.stringify(inputTask)); emit('WORKER_STARTED');
+    child.stdin.end(JSON.stringify({...inputTask,...(externalInputs?{external_task_inputs:{...externalInputs,workspace:undefined,untrusted_data:true,execute:false}}:{})})); emit('WORKER_STARTED');
     const finished = await childClosed;
     if (controller.signal.aborted) throw controller.signal.reason;
     invariant(!finished.error, 'WORKER_START_FAILED');
@@ -230,6 +234,7 @@ export async function runAgent3({ input, reservedTask, gatewayHeaders = {}, endp
     emit('WORKER_COMPLETED');
     return { state: report.status === 'complete' ? 'SUCCEEDED' : 'PARTIAL', protocol_version: inputTask.protocol_version,
       task_id: inputTask.task_id, evidence: result.evidence, report, interpretation: output,
+      ...(externalInputs?{external_inputs:{...externalInputs,workspace:undefined}}:{}),
       worker, qualification: worker === 'claude-code' ? 'LOCAL_CLAUDE_AND_LIVE_GATEWAY_NOT_QUALIFIED' : 'LOCAL_CODEX_AND_LIVE_GATEWAY_NOT_QUALIFIED', isolation: worker === 'claude-code' ? 'EVIDENCE_TOOL_ONLY_NOT_OS_SANDBOX' : 'READ_ONLY_REQUESTED_NOT_HOST_SECRECY' };
   } catch (error) {
     emit('WORKER_FAILED');
