@@ -70,7 +70,7 @@ export async function runAgent3({ input, reservedTask, gatewayHeaders = {}, endp
   const controller = new AbortController();
   const abort = () => controller.abort(new RugError('CANCELLED'));
   const emit = (code, fields = {}) => { try { onEvent({ event: code, ...fields }); } catch {} };
-  let accepted = 0, result, report, fault;
+  let accepted = 0, result, report, fault, taskId, rejection;
   try {
     invariant(['linux', 'darwin'].includes(process.platform), 'PLATFORM_UNQUALIFIED');
     invariant(Number.isInteger(timeoutMs) && timeoutMs >= 100 && timeoutMs <= 120000, 'DEADLINE_INVALID');
@@ -80,6 +80,7 @@ export async function runAgent3({ input, reservedTask, gatewayHeaders = {}, endp
     try { await fs.access(executable, fs.constants.X_OK); } catch { throw new RugError('WORKER_EXECUTABLE_UNAVAILABLE'); }
     invariant(gatewayHeaders && typeof gatewayHeaders==='object' && !Array.isArray(gatewayHeaders) && Object.keys(gatewayHeaders).every(k=>k==='authorization') && Object.values(gatewayHeaders).every(v=>typeof v==='string'&&v.length>0&&v.length<=4096&&!/[\r\n]/.test(v)),'GATEWAY_AUTH_INVALID');
     const url = gatewayURL(endpoint), inputTask = reservedTask ? validateTask(structuredClone(reservedTask)) : task(input);
+    taskId=inputTask.task_id;
     invariant(canonical(inputTask.request)===canonical(input),'RESERVED_TASK_CHANGED');
     configText(model, 'http://127.0.0.1');
     if (signal?.aborted) throw new RugError('CANCELLED');
@@ -104,7 +105,8 @@ export async function runAgent3({ input, reservedTask, gatewayHeaders = {}, endp
           let failure;
           try { failure=JSON.parse(await readBounded(response.body,4096)); } catch {}
           const code=typeof failure?.error?.code==='string' && /^SERVER_[A-Z_]{1,70}$/.test(failure.error.code) ? failure.error.code : 'GATEWAY_HTTP_ERROR';
-          emit('GATEWAY_REJECTED', { http_status: response.status, code, operation: body.operation, turn: body.turn });
+          rejection={http_status:response.status,operation:body.operation,...(Number.isInteger(body.turn)?{turn:body.turn}:{})};
+          emit('GATEWAY_REJECTED', { task_id:taskId, ...rejection, code });
           throw new RugError(code);
         }
         emit('GATEWAY_RESPONSE', { http_status: response.status, operation: body.operation, turn: body.turn });
@@ -227,7 +229,8 @@ export async function runAgent3({ input, reservedTask, gatewayHeaders = {}, endp
   } catch (error) {
     emit('WORKER_FAILED');
     return { state: controller.signal.reason?.code === 'CANCELLED' || error?.code === 'CANCELLED' ? 'CANCELLED' : 'FAILED',
-      error: publicError(controller.signal.aborted ? controller.signal.reason : error) };
+      error: publicError(controller.signal.aborted ? controller.signal.reason : error),
+      ...(taskId?{diagnostics:{task_id:taskId,...rejection}}:{}) };
   } finally {
     clearTimeout(timer); signal?.removeEventListener('abort', abort);
     if (!controller.signal.aborted) controller.abort(new RugError('CLEANUP'));

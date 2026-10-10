@@ -78,7 +78,8 @@ export async function resultAgent3({ root, jobId }) {
       interpretation: value.interpretation, worker: request.worker ?? 'codex', qualification: request.worker === 'claude-code' ? 'LOCAL_CLAUDE_AND_LIVE_GATEWAY_NOT_QUALIFIED' : 'LOCAL_CODEX_AND_LIVE_GATEWAY_NOT_QUALIFIED', isolation: request.worker === 'claude-code' ? 'EVIDENCE_TOOL_ONLY_NOT_OS_SANDBOX' : 'READ_ONLY_REQUESTED_NOT_HOST_SECRECY' } };
   }
   invariant(typeof value.error?.code === 'string' && /^[A-Z][A-Z0-9_]{0,79}$/.test(value.error.code), 'JOB_RESULT_INVALID');
-  return { ...status, completed_at_ms: saved.completed_at_ms, result: { state: value.state, error: { code: value.error.code } } };
+  let diagnostics;if(value.diagnostics!==undefined){const d=value.diagnostics;invariant(d&&typeof d==='object'&&!Array.isArray(d)&&Object.keys(d).every(k=>['task_id','http_status','operation','turn'].includes(k))&&typeof d.task_id==='string'&&/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/.test(d.task_id)&&(!Object.hasOwn(d,'http_status')||(Number.isInteger(d.http_status)&&d.http_status>=100&&d.http_status<=599))&&(!Object.hasOwn(d,'operation')||['turn','read-evidence'].includes(d.operation))&&(!Object.hasOwn(d,'turn')||(Number.isInteger(d.turn)&&d.turn>=0&&d.turn<4)),'JOB_RESULT_INVALID');diagnostics={...d};}
+  return { ...status, completed_at_ms: saved.completed_at_ms, result: { state: value.state, error: { code: value.error.code },...(diagnostics?{diagnostics}:{}) } };
 }
 export async function cancelAgent3({ root, jobId }) {
   const status = await statusAgent3({ root, jobId });
