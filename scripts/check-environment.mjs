@@ -9,7 +9,7 @@ const executable = args[0];
 let home;
 const result = { worker, node: process.version, platform: process.platform, cli_flags: 'NOT_CHECKED', gateway: 'NOT_CHECKED', real_execution: 'NOT_RUN', host_isolation: 'NOT_QUALIFIED' };
 try {
-  if (Number(process.versions.node.split('.')[0]) !== 24 || !['linux', 'darwin'].includes(process.platform)) throw new Error('RUNTIME_UNQUALIFIED');
+  if (![22, 24].includes(Number(process.versions.node.split('.')[0])) || !['linux', 'darwin'].includes(process.platform)) throw new Error('RUNTIME_UNQUALIFIED');
   if (!['codex', 'claude-code'].includes(worker)) throw new Error('WORKER_UNSUPPORTED');
   if (!executable || !path.isAbsolute(executable)) throw new Error(worker === 'claude-code' ? 'ABSOLUTE_CLAUDE_PATH_REQUIRED' : 'ABSOLUTE_CODEX_PATH_REQUIRED');
   await fs.access(executable, fs.constants.X_OK);

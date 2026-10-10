@@ -4,9 +4,23 @@ RugCheck prepares a bounded evidence report for a public Solana mainnet mint. It
 
 This is a public trial service. Default gateway: `https://rugcheck.r95426882.workers.dev/v1/rugcheck`; model: `deepseek-flash`. No installer API key or normal provider configuration change is required. The gateway is capped globally at 50 checks/day, 6 model requests/check, 2048 output tokens/request, 20 RPC/check and 120 seconds/check. Automatic increases are off. A fixed Worker URL forwards to a temporary tunnel origin, so an origin restart can interrupt service. Availability and complete evidence coverage are not promised.
 
+## What leaves your computer
+
+This check needs a public mint address, not wallet access. It does not require connecting a wallet, signing a transaction, or supplying a wallet private key or seed phrase. The worker reads public-chain evidence; it is not a wallet or transaction-signing tool.
+
+The mint, chain, profile, task identifier and signed installation requests go to the operator's RugCheck gateway. The current service uses DeepSeek for model inference and Helius for public-chain evidence queries; the server collector can fall back to its public RPC endpoint if its Helius binding is absent. Provider credentials stay on the server. Evidence and generated reports are processed through the gateway, and the service records the installation identifier and task history.
+
+Owner-uploaded task inputs also go through the gateway. The worker downloads the task's files locally; you and the local agent can read them during execution. File metadata and bounded supplemental text from txt/md/json/csv can be supplied to DeepSeek. These files are untrusted data, never automatically executed, and ordinary cleanup removes their temporary workspace. This is not a promise of confidential-file handling or complete cleanup after a crash.
+
+RugCheck can miss risks. A complete-looking report does not guarantee complete evidence, token safety, future sellability, liquidity locks or common ownership. The package supplies no operator identity verification, retention period, deletion policy or legal/privacy guarantee. Do not submit secrets or private documents.
+
+## Existing security assessments
+
+The installer displays third-party assessments. The [Socket report](https://skills.sh/random-react-dev/rugcheck/rugcheck/security/socket) flags trust in the fixed gateway and its unverified operator/data-handling policies; its detailed report identifies older commit `b58688bb08eb6a5e002b7f9c5dc4cc56f7bd0500`. The [Snyk report](https://skills.sh/random-react-dev/rugcheck/rugcheck/security/snyk) rates exposure to untrusted token content and the external gateway dependency as medium risk. These warnings are not dismissed by this package. The saved reports precede the current identity/attachment release; they do not verify the latest code. Check the linked pages for the existing assessments and their scope.
+
 ## Installation
 
-Requires Node 24, an installed Codex CLI and network access to the confirmed gateway. The package bundles its runtime and has no npm runtime dependencies, install hooks or Docker requirement. Installation alone runs no token analysis.
+Requires Node 22 or 24, an installed Codex CLI and network access to the confirmed gateway. The package bundles its runtime and has no npm runtime dependencies, install hooks or Docker requirement. Installation alone runs no token analysis.
 
 Install into a chosen project with:
 
@@ -83,6 +97,6 @@ A cancellation request is not confirmation of termination. Poll for a terminal r
 
 ## Compatibility and scope
 
-The prepared package targets Node 24 on macOS or Linux. Windows is unqualified. Real CLI help can check required flags, but offline installation and fixture tests do not qualify live model behavior. A canonical build completed real Codex and Claude runs against a private VM gateway. The later Codex/Helius report remained PARTIAL: holder sampling was unavailable, pool discovery was incomplete, and three Raydium CPMM pools were verified. That private-path result does not qualify this public installation or endpoint. A genuine Codex task against the deployed public pilot also returned validated PARTIAL evidence. Current public Claude execution has not been repeated; its earlier private-VM qualification remains separate evidence. No rugproof or confidentiality guarantee is made.
+The package supports Node 22 and 24 on macOS or Linux. Offline public runtime, identity, correlation and attachment checks passed on macOS with Node 22.23.3 and 24.21.0. Genuine public provider checks used Node 24; Node 22 live provider behavior has not been repeated. Other Node majors and Windows are unqualified. Real CLI help can check required flags, but offline installation and fixture tests do not qualify live model behavior. A canonical build completed real Codex and Claude runs against a private VM gateway. The later Codex/Helius report remained PARTIAL: holder sampling was unavailable, pool discovery was incomplete, and three Raydium CPMM pools were verified. That private-path result does not qualify this public installation or endpoint. A genuine Codex task against the deployed public pilot also returned validated PARTIAL evidence. Current public Claude execution has not been repeated; its earlier private-VM qualification remains separate evidence. No rugproof or confidentiality guarantee is made.
 
 The runtime retains optional Claude Code transport from the source build. It can be selected with `--worker claude-code` before the task path or `start`, and an absolute Claude executable path; its prerequisite check uses the same selector. It requests an evidence-only tool set, which is not an OS sandbox. Claude completed earlier bounded private-VM live tests; the public pilot has currently been qualified with Codex. No direct-provider templates are included in this export.
