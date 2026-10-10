@@ -1,3 +1,4 @@
+import {createLocalInstallation} from './installation-client.mjs';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -65,7 +66,7 @@ async function safeOutput(file) {
   finally { await handle?.close(); }
 }
 /** Async, bounded, one-shot worker. Never changes the user's normal Codex home. */
-export async function runAgent3({ input, reservedTask, gatewayHeaders = {}, endpoint, model, codexPath, claudePath, worker = 'codex', signal, timeoutMs = 90000, onEvent = () => {} }) {
+export async function runAgent3({ input, reservedTask, gatewayHeaders = {}, endpoint, model, codexPath, claudePath, worker = 'codex', installationStateRoot, installationIdentity='auto', signal, timeoutMs = 90000, onEvent = () => {} }) {
   let home, relay, child, killTimer, timer, childClosed;
   const controller = new AbortController();
   const abort = () => controller.abort(new RugError('CANCELLED'));
@@ -86,6 +87,10 @@ export async function runAgent3({ input, reservedTask, gatewayHeaders = {}, endp
     if (signal?.aborted) throw new RugError('CANCELLED');
     signal?.addEventListener('abort', abort, { once: true });
     timer = setTimeout(() => controller.abort(new RugError('DEADLINE_EXCEEDED')), timeoutMs);
+    invariant(['auto','required','off'].includes(installationIdentity),'INSTALLATION_MODE_INVALID');
+    const identify=installationIdentity==='required'||(installationIdentity==='auto'&&url.hostname==='rugcheck.r95426882.workers.dev'&&url.pathname==='/v1/rugcheck');
+    const installation=identify?await createLocalInstallation({...(installationStateRoot?{root:installationStateRoot}:{})}):null;
+    if(installation){const enrollment={public_key:installation.public_key};const registered=await fetch(new URL('/v1/installations',url),{method:'POST',redirect:'error',signal:AbortSignal.any([controller.signal,AbortSignal.timeout(10000)]),headers:{'content-type':'application/json',...installation.headers('/v1/installations',enrollment)},body:JSON.stringify(enrollment)});let value;try{value=JSON.parse(await readBounded(registered.body,4096));}catch{}invariant(registered.ok&&value?.installation_id===installation.id,'INSTALLATION_ENROLLMENT_FAILED');}
     home = await fs.mkdtemp(path.join(os.tmpdir(), 'rugcheck-agent3-'));
     await fs.chmod(home, 0o700);
     for (const dir of ['codex', 'claude', 'tmp', 'work']) await fs.mkdir(path.join(home, dir), { mode: 0o700 });
@@ -96,7 +101,7 @@ export async function runAgent3({ input, reservedTask, gatewayHeaders = {}, endp
       for (let attempt = 0; attempt < 3; attempt++) {
         emit('GATEWAY_REQUEST', { operation: body.operation, turn: body.turn, attempt });
         const response = await fetch(url, { method: 'POST', redirect: 'error', signal: controller.signal,
-          headers: { 'content-type': 'application/json', ...gatewayHeaders }, body: JSON.stringify(body) });
+          headers: { 'content-type': 'application/json', ...gatewayHeaders, ...(installation?installation.headers('/v1/rugcheck',body):{}) }, body: JSON.stringify(body) });
         if ([429, 502, 503, 504].includes(response.status) && attempt < 2) {
           await response.body?.cancel(); emit('GATEWAY_RETRY');
           await delay(100 * 2 ** attempt, undefined, { signal: controller.signal }); continue;

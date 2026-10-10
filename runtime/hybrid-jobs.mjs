@@ -1,3 +1,4 @@
+import os from 'node:os';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import crypto from 'node:crypto';
@@ -90,8 +91,11 @@ export async function cancelAgent3({ root, jobId }) {
   // Request acknowledgement is not a claim that the worker has stopped.
   return { ...status, cancellation_requested: true };
 }
-export async function startAgent3({ root, input, endpoint, model, codexPath, claudePath, worker = 'codex', timeoutMs = 90000 }) {
-  task(input); gatewayURL(endpoint); configText(model, 'http://127.0.0.1');
+export async function startAgent3({ root, input, endpoint, model, codexPath, claudePath, worker = 'codex', installationStateRoot, installationIdentity='auto', timeoutMs = 90000 }) {
+  task(input); const identityUrl=gatewayURL(endpoint);invariant(['auto','required','off'].includes(installationIdentity),'INSTALLATION_MODE_INVALID');
+  const identify=installationIdentity==='required'||(installationIdentity==='auto'&&identityUrl.hostname==='rugcheck.r95426882.workers.dev'&&identityUrl.pathname==='/v1/rugcheck');
+  if(identify)installationStateRoot??=path.join(os.homedir(),'.local/state/rugcheck');
+  if(installationStateRoot!==undefined)invariant(typeof installationStateRoot==='string'&&path.isAbsolute(installationStateRoot),'INSTALLATION_STATE_INVALID'); configText(model, 'http://127.0.0.1');
   invariant(Number.isInteger(timeoutMs) && timeoutMs >= 100 && timeoutMs <= 120000, 'DEADLINE_INVALID');
   invariant(['codex', 'claude-code'].includes(worker), 'WORKER_UNSUPPORTED');
   const executable = worker === 'claude-code' ? claudePath : codexPath;
@@ -104,7 +108,7 @@ export async function startAgent3({ root, input, endpoint, model, codexPath, cla
   await fs.mkdir(path.join(dir, 'tmp'), { mode: 0o700 });
   const now = Date.now();
   const state = { job_id: id, state: 'STARTING', created_at_ms: now, updated_at_ms: now, timeout_ms: timeoutMs };
-  await writeJobFile(dir, 'request.json', { input, endpoint, model, worker, ...(worker === 'claude-code' ? { claudePath } : { codexPath }), timeoutMs });
+  await writeJobFile(dir, 'request.json', { input, endpoint, model, worker, installationIdentity,...(installationStateRoot?{installationStateRoot}:{}), ...(worker === 'claude-code' ? { claudePath } : { codexPath }), timeoutMs });
   await writeJobFile(dir, 'state.json', state);
   const runner = fileURLToPath(new URL('./hybrid-job-runner.mjs', import.meta.url));
   const child = spawn(process.execPath, [runner, root, id], { detached: true, cwd: dir,
